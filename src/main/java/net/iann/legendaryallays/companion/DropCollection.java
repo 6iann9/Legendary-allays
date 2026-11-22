@@ -17,23 +17,38 @@ import net.neoforged.neoforge.event.level.BlockDropsEvent;
 
 /** A per-player FIFO of live drops. It never creates loot or force-loads chunks. */
 public final class DropCollection {
+    static final int DEPARTURE_INTERVAL = 2;
     private static final String OWNER = "legendaryallays:drop_owner";
     private static final String SESSION = "legendaryallays:drop_session";
 
     // Runtime only. A new login/server session always starts idle with no queue.
     static final class State {
         final UUID session = UUID.randomUUID();
+        CollectionMode mode;
+        State(CollectionMode mode) { this.mode = mode; }
+        long nextDepartureTick;
+        int nextCompanionSlot;
         final LinkedHashMap<UUID, ItemEntity> queue = new LinkedHashMap<>();
     }
 
     private DropCollection() {}
 
-    public static void start(ServerPlayer player) {
-        // Re-selecting Dropped must not forget work already queued.
-        CompanionRoster.get(player.server).collectionStates.computeIfAbsent(player.getUUID(), key -> new State());
+    public static void start(ServerPlayer player, CollectionMode mode) {
+        var states = CompanionRoster.get(player.server).collectionStates;
+        State current = states.get(player.getUUID());
+        if (current != null && current.mode == mode) return;
+        if (current != null && current.mode.dropped && mode.dropped) {
+            // Switching between Dropped and Everywhere retains the priority queue.
+            current.mode = mode;
+            if (!mode.nearby) NearbyCollection.cancel(player);
+            return;
+        }
+        idle(player);
+        states.put(player.getUUID(), new State(mode));
     }
 
     public static void idle(ServerPlayer player) {
+        NearbyCollection.cancel(player);
         State state = CompanionRoster.get(player.server).collectionStates.remove(player.getUUID());
         if (state == null) return;
         state.queue.values().forEach(DropCollection::clearTracking);
@@ -62,9 +77,10 @@ public final class DropCollection {
 
     private static void track(ServerPlayer player, Collection<ItemEntity> drops) {
         State state = CompanionRoster.get(player.server).collectionStates.get(player.getUUID());
-        if (state == null || !player.isAlive() || player.isSpectator() || !hasLute(player)) return;
+        if (state == null || !state.mode.dropped || !player.isAlive() || player.isSpectator() || !hasLute(player)) return;
         for (ItemEntity item : drops) {
-            if (item.getItem().isEmpty() || item.getPersistentData().getBoolean(CompanionCargo.EXCLUDED)) continue;
+            if (!CompanionRoster.get(player.server).filter(player.getUUID()).matches(item.getItem())
+                    || item.getPersistentData().getBoolean(CompanionCargo.EXCLUDED)) continue;
             if (item.getTarget() != null && !item.getTarget().equals(player.getUUID())) continue;
             item.getPersistentData().putUUID(OWNER, player.getUUID());
             item.getPersistentData().putUUID(SESSION, state.session);
@@ -87,9 +103,21 @@ public final class DropCollection {
         // A still-eligible unloaded item rejoins the queue when its chunk loads again.
         state.queue.values().removeIf(item -> !item.isAlive() || item.getItem().isEmpty()
                 || !(item.level() instanceof ServerLevel level) || level.getEntity(item.getUUID()) != item);
-        if (!player.isAlive() || player.isSpectator() || !hasLute(player)) return;
+        if (!player.isAlive() || player.isSpectator() || !hasLute(player)) {
+            NearbyCollection.cancel(player);
+            return;
+        }
+        NearbyCollection.validate(player);
+        boolean droppedWaiting = hasPriorityDrops(player);
+        if (droppedWaiting) NearbyCollection.cancel(player);
+        long now = player.server.overworld().getGameTime();
+        if (now < state.nextDepartureTick) return;
         CompanionRoster roster = CompanionRoster.get(player.server);
-        for (var entry : roster.entries(player.getUUID())) {
+        var entries = roster.entries(player.getUUID());
+        // Round-robin keeps the whole group participating when several slots are free.
+        for (int offset = 0; offset < entries.size(); offset++) {
+            int index = (state.nextCompanionSlot + offset) % entries.size();
+            var entry = entries.get(index);
             BoundAllay allay = entry.entity;
             if (allay == null || allay.isRemoved() || allay.level() != player.level() || !allay.canCollectDrop()) continue;
             var iterator = state.queue.values().iterator();
@@ -110,14 +138,41 @@ public final class DropCollection {
                     if (!item.isAlive() || item.getItem().isEmpty()) iterator.remove();
                     entry.capture();
                     roster.setDirty();
-                    break;
+                    state.nextDepartureTick = now + DEPARTURE_INTERVAL;
+                    state.nextCompanionSlot = (index + 1) % entries.size();
+                    return; // At most one departure per interval; remaining drops stay queued.
                 }
             }
         }
+        if (state.mode.nearby && !droppedWaiting) NearbyCollection.dispatch(player, state, entries, now);
+    }
+
+    public static void filterChanged(ServerPlayer player) {
+        CompanionRoster roster = CompanionRoster.get(player.server);
+        State state = roster.collectionStates.get(player.getUUID());
+        if (state == null) return;
+        state.queue.values().removeIf(item -> {
+            if (roster.filter(player.getUUID()).matches(item.getItem())) return false;
+            clearTracking(item);
+            return true;
+        });
+    }
+
+    public static boolean isQueued(ItemEntity item) { return validState(item) != null; }
+
+    public static boolean hasPriorityDrops(ServerPlayer player) {
+        State state = CompanionRoster.get(player.server).collectionStates.get(player.getUUID());
+        return state != null && state.mode.dropped && state.queue.values().stream().anyMatch(item ->
+                item.level() == player.level() && item.isAlive() && !item.getItem().isEmpty()
+                && player.serverLevel().getEntity(item.getUUID()) == item
+                && CompanionRoster.get(player.server).filter(player.getUUID()).matches(item.getItem())
+                && !item.getPersistentData().getBoolean(CompanionCargo.EXCLUDED)
+                && (item.getTarget() == null || item.getTarget().equals(player.getUUID())));
     }
 
     /** Queue ownership must not be lost by a merge into an unrelated dropped stack. */
     public static boolean mayMerge(ItemEntity a, ItemEntity b) {
+        if (NearbyCollection.isReserved(a) || NearbyCollection.isReserved(b)) return false;
         if (a.getPersistentData().getBoolean(CompanionCargo.EXCLUDED)
                 != b.getPersistentData().getBoolean(CompanionCargo.EXCLUDED)) return false;
         State first = validState(a);
@@ -130,7 +185,8 @@ public final class DropCollection {
         if (!tag.hasUUID(OWNER) || !tag.hasUUID(SESSION)) return null;
         if (!(item.level() instanceof ServerLevel level)) return null;
         State state = CompanionRoster.get(level.getServer()).collectionStates.get(tag.getUUID(OWNER));
-        if (state != null && state.session.equals(tag.getUUID(SESSION))) return state;
+        if (state != null && state.mode.dropped && state.session.equals(tag.getUUID(SESSION))
+                && CompanionRoster.get(level.getServer()).filter(tag.getUUID(OWNER)).matches(item.getItem())) return state;
         // Discard stale eligibility after Idle, logout or restart; ordinary loot remains.
         clearTracking(item);
         return null;

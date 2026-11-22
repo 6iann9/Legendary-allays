@@ -4,6 +4,7 @@ import java.util.Comparator;
 import java.util.List;
 import net.iann.legendaryallays.entity.BoundAllay;
 import net.iann.legendaryallays.command.LuteCommand;
+import net.iann.legendaryallays.command.LuteSounds;
 import net.iann.legendaryallays.registry.ModEntities;
 import net.iann.legendaryallays.registry.ModItems;
 import net.minecraft.nbt.CompoundTag;
@@ -28,13 +29,27 @@ public final class CompanionManager {
         switch (command) {
             case BIND -> bind(player);
             case UNBIND -> unbind(player);
+            case FILTER_ADD -> FilterCommands.addOffhand(player);
+            case FILTER_CLEAR -> FilterCommands.clear(player);
             case COLLECT_DROPPED -> {
-                DropCollection.start(player);
+                DropCollection.start(player, CollectionMode.DROPPED);
                 message(player, "collect_dropped");
+                LuteSounds.play(player, LuteCommand.COLLECT_DROPPED);
+            }
+            case COLLECT_NEARBY -> {
+                DropCollection.start(player, CollectionMode.NEARBY);
+                message(player, "collect_nearby");
+                LuteSounds.play(player, LuteCommand.COLLECT_NEARBY);
+            }
+            case COLLECT_EVERYWHERE -> {
+                DropCollection.start(player, CollectionMode.EVERYWHERE);
+                message(player, "collect_everywhere");
+                LuteSounds.play(player, LuteCommand.COLLECT_EVERYWHERE);
             }
             case IDLE -> {
                 DropCollection.idle(player);
                 message(player, "idle");
+                LuteSounds.play(player, LuteCommand.IDLE);
             }
         }
     }
@@ -70,6 +85,7 @@ public final class CompanionManager {
         target.discard();
         roster.setDirty();
         message(player, "bound");
+        LuteSounds.play(player, LuteCommand.BIND);
     }
 
     private static void unbind(ServerPlayer player) {
@@ -89,10 +105,12 @@ public final class CompanionManager {
         if (!player.serverLevel().addFreshEntity(normal)) { message(player, "failed"); return; }
         // Drop from the replacement, so failed item spawns retain their stack on the Allay.
         CompanionCargo.dropAll(normal, normal.position());
+        NearbyCollection.release(entry.entity);
         entry.entity.discard();
         entries.remove(entry);
         roster.setDirty();
         message(player, "unbound");
+        LuteSounds.play(player, LuteCommand.UNBIND);
     }
 
     private static BoundAllay create(ServerPlayer player, CompanionRoster.Entry entry, int slot, Vec3 position) {
@@ -111,6 +129,7 @@ public final class CompanionManager {
             var entry = entries.get(slot);
             BoundAllay entity = entry.entity;
             if (entity != null && (entity.isRemoved() || entity.level() != player.level() || !player.isAlive())) {
+                NearbyCollection.release(entity);
                 entry.capture();
                 entity.discard();
                 entry.entity = null;

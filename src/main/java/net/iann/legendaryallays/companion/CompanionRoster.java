@@ -13,7 +13,9 @@ import net.minecraft.world.level.saveddata.SavedData;
 public final class CompanionRoster extends SavedData {
     public static final int LIMIT = 8;
     private final Map<UUID, List<Entry>> owners = new HashMap<>();
+    private final Map<UUID, ItemFilter> filters = new HashMap<>();
     final Map<UUID, DropCollection.State> collectionStates = new HashMap<>();
+    final Map<UUID, BoundAllay> nearbyReservations = new HashMap<>();
 
     public static final class Entry {
         public CompoundTag data;
@@ -29,6 +31,8 @@ public final class CompanionRoster extends SavedData {
 
     public List<Entry> entries(UUID owner) { return owners.computeIfAbsent(owner, key -> new ArrayList<>()); }
 
+    public ItemFilter filter(UUID owner) { return filters.computeIfAbsent(owner, key -> new ItemFilter()); }
+
     private static CompanionRoster load(CompoundTag tag, HolderLookup.Provider registries) {
         CompanionRoster roster = new CompanionRoster();
         for (Tag value : tag.getList("Owners", Tag.TAG_COMPOUND)) {
@@ -36,6 +40,12 @@ public final class CompanionRoster extends SavedData {
             if (!owner.hasUUID("Owner")) continue;
             List<Entry> entries = roster.entries(owner.getUUID("Owner"));
             for (Tag allay : owner.getList("Allays", Tag.TAG_COMPOUND)) entries.add(new Entry((CompoundTag) allay));
+        }
+        for (Tag value : tag.getList("Filters", Tag.TAG_COMPOUND)) {
+            CompoundTag filter = (CompoundTag) value;
+            if (filter.hasUUID("Owner")) {
+                roster.filters.put(filter.getUUID("Owner"), ItemFilter.load(filter.getList("Items", Tag.TAG_STRING)));
+            }
         }
         return roster;
     }
@@ -56,6 +66,15 @@ public final class CompanionRoster extends SavedData {
             savedOwners.add(owner);
         });
         tag.put("Owners", savedOwners);
+        ListTag savedFilters = new ListTag();
+        filters.forEach((id, filter) -> {
+            if (filter.size() == 0) return;
+            CompoundTag data = new CompoundTag();
+            data.putUUID("Owner", id);
+            data.put("Items", filter.save());
+            savedFilters.add(data);
+        });
+        tag.put("Filters", savedFilters);
         return tag;
     }
 }

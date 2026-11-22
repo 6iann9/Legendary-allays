@@ -1,0 +1,50 @@
+{
+  "lute.bind_allay": {
+    "subtitle": "subtitles.legendaryallays.lute",
+    "sounds": [
+      "legendaryallays:lute/bind_allay"
+    ]
+  },
+  "lute.unbind_allay": {
+    "subtitle": "subtitles.legendaryallays.lute",
+    "sounds": [
+      "legendaryallays:lute/unbind_allay"
+    ]
+  },
+  "lute.collect_dropped": {
+    "subtitle": "subtitles.legendaryallays.lute",
+    "sounds": [
+      "legendaryallays:lute/collect_dropped"
+    ]
+  },
+  "lute.collect_nearby": {
+    "subtitle": "subtitles.legendaryallays.lute",
+    "sounds": [
+      "legendaryallays:lute/collect_nearby"
+    ]
+  },
+  "lute.collect_everywhere": {
+    "subtitle": "subtitles.legendaryallays.lute",
+    "sounds": [
+      "legendaryallays:lute/collect_everywhere"
+    ]
+  },
+  "lute.idle": {
+    "subtitle": "subtitles.legendaryallays.lute",
+    "sounds": [
+      "legendaryallays:lute/idle"
+    ]
+  },
+  "lute.filter_add": {
+    "subtitle": "subtitles.legendaryallays.lute",
+    "sounds": [
+      "legendaryallays:lute/filter_add"
+    ]
+  },
+  "lute.filter_clear": {
+    "subtitle": "subtitles.legendaryallays.lute",
+    "sounds": [
+      "legendaryallays:lute/filter_clear"
+    ]
+  }
+}

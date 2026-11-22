@@ -18,7 +18,7 @@ public record LuteCommandPayload(LuteCommand command) implements CustomPacketPay
     @Override public Type<LuteCommandPayload> type() { return TYPE; }
 
     public static void register(RegisterPayloadHandlersEvent event) {
-        event.registrar("2").playToServer(TYPE, CODEC, (payload, context) -> {
+        event.registrar("4").playToServer(TYPE, CODEC, (payload, context) -> {
             if (context.player() instanceof ServerPlayer player) CompanionManager.command(player, payload.command());
         });
     }

@@ -4,7 +4,6 @@
   "wheel.legendaryallays.choose": "Choose a command",
   "wheel.legendaryallays.confirm": "Left-click: confirm | WASD: move",
   "wheel.legendaryallays.cancel": "Right-click / Esc: cancel",
-  "wheel.legendaryallays.test": "Test: %s",
   "wheel.legendaryallays.bind": "Bind Allay",
   "wheel.legendaryallays.unbind": "Unbind Allay",
   "wheel.legendaryallays.filter_add": "Add Item to Filter",
@@ -24,5 +23,16 @@
   "message.legendaryallays.unbound": "Allay released.",
   "wheel.legendaryallays.idle": "Idle",
   "message.legendaryallays.collect_dropped": "Collect Dropped enabled. Keep a lute in your inventory.",
-  "message.legendaryallays.idle": "Idle: pending pickups cleared. Current deliveries will finish."
+  "message.legendaryallays.idle": "Idle: pending pickups cleared. Current deliveries will finish.",
+  "message.legendaryallays.collect_nearby": "Collect Nearby enabled: items within 16 blocks.",
+  "message.legendaryallays.collect_everywhere": "Collect Everywhere enabled: your mining/killing drops take priority.",
+  "message.legendaryallays.filter_empty_hand": "Hold an item in your offhand to add its type to the filter.",
+  "message.legendaryallays.filter_duplicate": "%s is already in your filter.",
+  "message.legendaryallays.filter_added": "Added %s to the filter (%s item types).",
+  "message.legendaryallays.filter_cleared": "Filter cleared: Allays can collect any item.",
+  "wheel.legendaryallays.collection": "Collection",
+  "wheel.legendaryallays.back": "Right-click / Esc: back",
+  "wheel.legendaryallays.center_back": "Back",
+  "wheel.legendaryallays.center_close": "Close",
+  "subtitles.legendaryallays.lute": "Lute strums"
 }

@@ -1,6 +1,7 @@
 package net.iann.legendaryallays;
 
 import net.iann.legendaryallays.registry.ModItems;
+import net.iann.legendaryallays.registry.ModSounds;
 import net.iann.legendaryallays.registry.ModEntities;
 import net.iann.legendaryallays.companion.CompanionManager;
 import net.iann.legendaryallays.companion.DropCollection;
@@ -18,6 +19,7 @@ public final class LegendaryAllays {
 
     public LegendaryAllays(IEventBus modEventBus) {
         ModItems.ITEMS.register(modEventBus);
+        ModSounds.SOUNDS.register(modEventBus);
         ModEntities.ENTITIES.register(modEventBus);
         modEventBus.addListener(ModEntities::attributes);
         modEventBus.addListener(LuteCommandPayload::register);

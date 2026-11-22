@@ -5,5 +5,9 @@ public enum LuteCommand {
     BIND,
     UNBIND,
     COLLECT_DROPPED,
-    IDLE
+    IDLE,
+    COLLECT_NEARBY,
+    COLLECT_EVERYWHERE,
+    FILTER_ADD,
+    FILTER_CLEAR
 }

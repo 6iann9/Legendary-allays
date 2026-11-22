@@ -3,6 +3,7 @@ package net.iann.legendaryallays.entity;
 import java.util.UUID;
 import net.iann.legendaryallays.companion.CompanionCargo;
 import net.iann.legendaryallays.companion.CompanionRoster;
+import net.iann.legendaryallays.companion.NearbyCollection;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.util.Mth;
 import net.minecraft.server.level.ServerPlayer;
@@ -23,12 +24,19 @@ import net.minecraft.world.phys.Vec3;
 public final class BoundAllay extends Allay {
     private static final double FOLLOW_SPEED = 0.6;
     private static final double DELIVERY_SPEED = 0.3;
+    private static final double PICKUP_SPEED = 0.6;
     private static final float TURN_SPEED = 12.0F;
+    private static final double DELIVERY_ARRIVAL_DISTANCE = 0.45;
 
     private UUID owner;
     private int formationSlot;
     private int nextPickupTick;
     private int deliveryReadyTick;
+    private ItemEntity nearbyTarget;
+
+    public UUID ownerId() { return owner; }
+    public ItemEntity nearbyTarget() { return nearbyTarget; }
+    public void setNearbyTarget(ItemEntity item) { nearbyTarget = item; }
 
     public BoundAllay(EntityType<? extends Allay> type, Level level) {
         super(type, level);
@@ -80,14 +88,20 @@ public final class BoundAllay extends Allay {
     public void dropCargo(Vec3 position) { CompanionCargo.dropAll(this, position); }
 
     /** Single server-thread transfer: never copy a stack without removing it from the drop. */
-    public boolean collectDrop(ItemEntity item) {
+    public boolean collectDrop(ItemEntity item) { return collect(item, true); }
+
+    private boolean collect(ItemEntity item, boolean teleport) {
         if (level().isClientSide || !canCollectDrop() || !item.isAlive() || item.getItem().isEmpty()) return false;
         ItemStack source = item.getItem();
         int count = Math.min(source.getCount(), source.getMaxStackSize());
         ItemStack carried = source.copyWithCount(count);
         ItemStack remainder = source.copy();
         remainder.shrink(count);
-        teleportTo(item.getX(), item.getY() + 0.25, item.getZ());
+        NearbyCollection.release(this);
+        if (teleport) {
+            Vec3 pickup = pickupPosition(item);
+            teleportTo(pickup.x, pickup.y, pickup.z);
+        }
         setDeltaMovement(Vec3.ZERO);
         setItemSlot(EquipmentSlot.MAINHAND, carried);
         take(item, count);
@@ -95,6 +109,18 @@ public final class BoundAllay extends Allay {
         else item.setItem(remainder);
         deliveryReadyTick = tickCount + 4;
         return true;
+    }
+
+    /** Shared spaced approach points for both pickup styles. */
+    private Vec3 pickupPosition(ItemEntity item) {
+        Player player = owner == null ? null : level().getPlayerByUUID(owner);
+        double yaw = Math.toRadians(player == null ? getYRot() : player.getYRot());
+        Vec3 forward = new Vec3(-Math.sin(yaw), 0, Math.cos(yaw));
+        Vec3 right = new Vec3(Math.cos(yaw), 0, Math.sin(yaw));
+        int row = formationSlot / 2;
+        double side = (formationSlot % 2 == 0 ? -1 : 1) * (0.45 + row * 0.30);
+        return item.position().add(right.scale(side)).subtract(forward.scale(0.15 + row * 0.45))
+                .add(0, 0.25 + row * 0.15, 0);
     }
 
     @Override
@@ -110,15 +136,22 @@ public final class BoundAllay extends Allay {
                 Vec3 right = new Vec3(Math.cos(yaw), 0, Math.sin(yaw));
                 double side = (formationSlot % 2 == 0 ? -1 : 1) * (0.9 + (formationSlot / 2) * 0.45);
                 double back = 1.8 + (formationSlot / 2) * 0.55;
+                if (nearbyTarget != null && !NearbyCollection.canPursue((ServerPlayer) player, this, nearbyTarget)) {
+                    NearbyCollection.release(this);
+                }
+                boolean fetching = nearbyTarget != null;
                 boolean delivering = hasCargo();
-                Vec3 target = delivering ? player.position().add(0, 1.0, 0)
+                // Delivery ends in this Allay's own formation slot, not the player's chest.
+                Vec3 target = fetching ? pickupPosition(nearbyTarget)
                         : player.position().subtract(forward.scale(back)).add(right.scale(side))
-                            .add(0, 1.25 + Math.sin((tickCount + formationSlot * 15) * 0.07) * 0.12, 0);
+                        .add(0, 1.25 + Math.sin((tickCount + formationSlot * 15) * 0.07) * 0.12, 0);
                 Vec3 difference = target.subtract(position());
-                double speed = delivering ? DELIVERY_SPEED : FOLLOW_SPEED;
-                Vec3 step = difference.scale(delivering ? 0.08 : 0.16);
+                double speed = fetching ? PICKUP_SPEED : delivering ? DELIVERY_SPEED : FOLLOW_SPEED;
+                // Keep delivery speed capped, but do not ease to a crawl before reaching
+                // a formation slot that may be moving with the player.
+                Vec3 step = delivering || fetching ? difference : difference.scale(0.16);
                 if (step.lengthSqr() > speed * speed) step = step.normalize().scale(speed);
-                Vec3 next = !delivering && difference.lengthSqr() > 1024 ? target : position().add(step);
+                Vec3 next = !delivering && !fetching && difference.lengthSqr() > 1024 ? target : position().add(step);
                 setPos(next.x, next.y, next.z);
                 // Face the route while travelling; ignore small hover corrections at rest.
                 double horizontalDistance = difference.horizontalDistance();
@@ -132,8 +165,15 @@ public final class BoundAllay extends Allay {
                 setXRot(Mth.approachDegrees(getXRot(), desiredPitch, TURN_SPEED));
                 setYHeadRot(getYRot());
                 yBodyRot = getYRot();
+                if (fetching && position().distanceToSqr(target) <= DELIVERY_ARRIVAL_DISTANCE * DELIVERY_ARRIVAL_DISTANCE) {
+                    if (collect(nearbyTarget, false)) {
+                        CompanionRoster.get(((ServerPlayer) player).server).setDirty();
+                    } else {
+                        NearbyCollection.release(this);
+                    }
+                }
                 // Delivery continues in Idle and without a lute; only new pickups pause.
-                if (delivering && tickCount >= deliveryReadyTick && position().distanceToSqr(target) <= 2.25) {
+                if (delivering && tickCount >= deliveryReadyTick && position().distanceToSqr(target) <= DELIVERY_ARRIVAL_DISTANCE * DELIVERY_ARRIVAL_DISTANCE) {
                     CompanionCargo.deliver(this, (ServerPlayer) player);
                     nextPickupTick = tickCount + 4;
                     deliveryReadyTick = tickCount + 20;
